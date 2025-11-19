@@ -1,0 +1,156 @@
+name: 编译N2N_IPV6
+
+on:
+  push:
+  workflow_dispatch:
+  
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+  
+env:
+  TZ: Asia/Shanghai
+  
+permissions:
+  contents: write
+  actions: write 
+  
+jobs:
+  build:
+    name: ${{ matrix.TARGET }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - TARGET: aarch64-linux-musl
+            OPENSSL_TARGET: linux-aarch64
+            
+          - TARGET: armv7l-linux-musleabihf
+            OPENSSL_TARGET: linux-armv4
+            
+          - TARGET: armv7m-linux-musleabi
+            OPENSSL_TARGET: linux-armv4
+            
+          - TARGET: arm-linux-musleabi
+            OPENSSL_TARGET: linux-armv4
+            
+          - TARGET: arm-linux-musleabihf
+            OPENSSL_TARGET: linux-armv4
+            
+          - TARGET: mipsel-linux-muslsf
+            OPENSSL_TARGET: linux-mips32
+            
+          - TARGET: mips-linux-muslsf
+            OPENSSL_TARGET: linux-mips32
+            
+          - TARGET: i686-linux-musl
+            OPENSSL_TARGET: linux-generic32
+            
+          - TARGET: x86_64-linux-musl
+            OPENSSL_TARGET: linux-x86_64
+    runs-on: ubuntu-latest
+    env:
+      OPENSSL_TARGET: ${{ matrix.OPENSSL_TARGET }}
+      TARGET: ${{ matrix.TARGET }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          
+      - name: 缓存 OpenSSL 
+        id: cache-openssl
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/openssl-${{ env.TARGET }}
+          key: openssl-${{ env.TARGET }}-cache
+          
+      - name: 下载编译工具链
+        run: |
+          mkdir -p /opt/musl_gcc 
+          #下载编译器
+          wget -q -c https://github.com/lmq8267/Toolchain/releases/download/musl-cross/${{ env.TARGET }}-cross.tgz -P /opt/musl_gcc/
+          tar zxf /opt/musl_gcc/${{ env.TARGET }}-cross.tgz -C /opt/musl_gcc/
+          
+      - name: 安装 UPX
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          version: v4.2.4
+          install-only: true
+      - name: 编译
+        run: |
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          export PATH=/opt/musl_gcc/${{ env.TARGET }}-cross/bin:$PATH
+          export CC=/opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-gcc
+          export CXX=/opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-g++
+          export AR=/opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-ar
+          export LD=/opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-ld
+          export RANLIB=/opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-ranlib
+          export STRIP=/opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-strip
+
+          if [ ! -d "/opt/openssl-${{ env.TARGET }}" ]; then
+            #克隆openssl
+            git clone --recursive https://github.com/openssl/openssl -b OpenSSL_1_1_1-stable
+            cd openssl
+            echo "###########################编译openssl依赖库########################"
+            ./Configure no-shared no-zlib --prefix=/opt/openssl-${{ env.TARGET }} ${{ env.OPENSSL_TARGET }} LDFLAGS="-static -I/opt/musl_gcc/${{ env.TARGET }}-cross/${{ env.TARGET }}/include -L/opt/musl_gcc/${{ env.TARGET }}-cross/${{ env.TARGET }}/lib" CFLAGS="-static -I/opt/musl_gcc/${{ env.TARGET }}-cross/${{ env.TARGET }}/include -L/opt/musl_gcc/${{ env.TARGET }}-cross/${{ env.TARGET }}/lib"
+            make -j$(nproc)
+            make install
+            cd ../
+          fi
+          mkdir -p build
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-O2 -ffunction-sections -fdata-sections -I/opt/openssl-${{ env.TARGET }}/include" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -Wl,--gc-sections -static-libgcc -L/opt/openssl-${{ env.TARGET }}/lib" \
+            -DCMAKE_C_COMPILER=${CC} \
+            -DCMAKE_AR=${AR} \
+            -DCMAKE_LINKER=${LD} \
+            -DCMAKE_RANLIB=${RANLIB} \
+            -DCMAKE_C_COMPILER_AR=${AR} \
+            -DCMAKE_C_COMPILER_RANLIB=${RANLIB} \
+            -DCMAKE_STRIP=${STRIP} \
+            -DN2N_OPTION_AES=ON \
+            -DUSE_OPENSSL=1 \
+            -DOPENSSL_INCLUDE_DIR=/opt/openssl-${{ env.TARGET }}/include \
+            -DOPENSSL_CRYPTO_LIBRARY=/opt/openssl-${{ env.TARGET }}/lib/libcrypto.a 
+
+          make -j$(nproc)
+          
+        #continue-on-error: true
+      - 
+        name: 剥离压缩
+        run: |
+          cd build
+          #查看当前目录文件
+          ls -la
+          #查看edge二进制文件信息
+          file edge
+          #剥离
+          /opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-strip edge
+          /opt/musl_gcc/${{ env.TARGET }}-cross/bin/${{ env.TARGET }}-strip supernode
+          #压缩
+          upx --lzma --best edge || true
+          upx --lzma --best supernode || true
+          zip n2n_ipv6-${{ env.TARGET }}.zip edge supernode
+          tagtime=$(date '+%Y-%m-%d')
+          echo "tagtime=$(date '+%Y-%m-%d')" >> $GITHUB_ENV
+          echo "build_time=$(date '+%Y年%m月%d日%H:%M:%S' | jq -sRr @uri)" >> $GITHUB_ENV
+
+      - name : 上传
+        uses: actions/upload-artifact@master
+        if: always()
+        with:
+         name: n2n_ipv6-${{ env.TARGET }}
+         path: |
+           build/edge
+           build/supernode
+      - 
+       name: 删除工作流
+       uses: GitRML/delete-workflow-runs@main
+       with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        retain_days: 2
+        keep_minimum_runs: 0 
