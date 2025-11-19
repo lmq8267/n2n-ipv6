@@ -103,7 +103,7 @@ jobs:
           cd build
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_FLAGS="-O2 -ffunction-sections -fdata-sections -I/opt/openssl-${{ env.TARGET }}/include" \
+            -DCMAKE_C_FLAGS="-O2 -ffunction-sections -fdata-sections -fno-strict-aliasing -I/opt/openssl-${{ env.TARGET }}/include" \
             -DCMAKE_EXE_LINKER_FLAGS="-static -Wl,--gc-sections -static-libgcc -L/opt/openssl-${{ env.TARGET }}/lib" \
             -DCMAKE_C_COMPILER=${CC} \
             -DCMAKE_AR=${AR} \
@@ -118,6 +118,8 @@ jobs:
             -DOPENSSL_CRYPTO_LIBRARY=/opt/openssl-${{ env.TARGET }}/lib/libcrypto.a 
 
           make -j$(nproc)
+          ./edge -h || true
+          ./supernode -h || true
           
         #continue-on-error: true
       - 
