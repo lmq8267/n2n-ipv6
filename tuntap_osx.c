@@ -24,97 +24,50 @@ void tun_close(tuntap_dev *device);
 /* ********************************** */
 
 #define N2N_OSX_TAPDEVICE_SIZE 32
-int tuntap_open(tuntap_dev *device /* ignored */, 
-                char *dev, 
-                const char *address_mode, /* static or dhcp */
-                char *device_ip, 
-                char *device_mask,
-                const char * device_mac,
-		int mtu) {
-  int i;
-  char tap_device[N2N_OSX_TAPDEVICE_SIZE];
-
-  for (i = 0; i < 255; i++) {
-    snprintf(tap_device, sizeof(tap_device), "/dev/tap%d", i);
-
-    device->fd = open(tap_device, O_RDWR);
-    if(device->fd > 0) {
-      traceEvent(TRACE_NORMAL, "Succesfully open %s", tap_device);
-      break;
-    }
-  }
-  
-  if(device->fd < 0) {
-    traceEvent(TRACE_ERROR, "Unable to open tap device");
-    return(-1);
-  } else {
-    char buf[256];
-    FILE *fd;
-
-    device->ip_addr = inet_addr(device_ip);
-
-    if ( device_mac && device_mac[0] != '\0' )
-    {
-        /* FIXME - This is not tested. Might be wrong syntax for OS X */
-
-        /* Set the hw address before bringing the if up. */
-        snprintf(buf, sizeof(buf), "ifconfig tap%d ether %s",
-                 i, device_mac);
-        system(buf);
-    }
-
-    snprintf(buf, sizeof(buf), "ifconfig tap%d %s netmask %s mtu %d up",
-             i, device_ip, device_mask, mtu);
-    system(buf);
-
-    traceEvent(TRACE_NORMAL, "Interface tap%d up and running (%s/%s)",
-               i, device_ip, device_mask);
-
-  /* Read MAC address */
-
-    snprintf(buf, sizeof(buf), "ifconfig tap%d |grep ether|cut -c 8-24", i);
-    /* traceEvent(TRACE_INFO, "%s", buf); */
-
-    fd = popen(buf, "r");
-    if(fd < 0) {
-      tun_close(device);
-      return(-1);
-    } else {
-      int a, b, c, d, e, f;
-
-      buf[0] = 0;
-      fgets(buf, sizeof(buf), fd);
-      pclose(fd);
+int tuntap_open(tuntap_dev *device, struct tuntap_config* config) {  
+    char tap_device[128];  
+    int tap_fd;  
       
-      if(buf[0] == '\0') {
-	traceEvent(TRACE_ERROR, "Unable to read tap%d interface MAC address");
-	exit(0);
-      }
-
-      traceEvent(TRACE_NORMAL, "Interface tap%d [MTU %d] mac %s", i, mtu, buf);
-      if(sscanf(buf, "%02x:%02x:%02x:%02x:%02x:%02x", &a, &b, &c, &d, &e, &f) == 6) {
-	device->mac_addr[0] = a, device->mac_addr[1] = b;
-	device->mac_addr[2] = c, device->mac_addr[3] = d;
-	device->mac_addr[4] = e, device->mac_addr[5] = f;
-      }
-    }
-  }
-
-
-  /* read_mac(dev, device->mac_addr); */
-  return(device->fd);
+    // 打开 TAP 设备  
+    snprintf(tap_device, sizeof(tap_device), "/dev/%s", config->if_name);  
+    tap_fd = open(tap_device, O_RDWR);  
+    if(tap_fd < 0) {  
+        traceEvent(TRACE_ERROR, "Unable to open TAP device %s", tap_device);  
+        return -1;  
+    }  
+      
+    device->fd = tap_fd;  
+      
+    // 复制配置信息到设备结构  
+    strncpy(device->dev_name, config->if_name, N2N_IFNAMSIZ);  
+    memcpy(&device->ip_addr, &config->ip_addr, sizeof(config->ip_addr));  
+    device->ip_prefixlen = config->ip_prefixlen;  
+    memcpy(&device->ip6_addr, &config->ip6_addr, sizeof(config->ip6_addr));  
+    device->ip6_prefixlen = config->ip6_prefixlen;  
+    device->mtu = config->mtu;  
+    device->routes_count = config->routes_count;  
+    device->routes = config->routes;  
+      
+    // 设置 MAC 地址(如果提供)  
+    if (!(config->device_mac[0] == 0 && config->device_mac[1] == 0 &&  
+          config->device_mac[2] == 0 && config->device_mac[3] == 0 &&  
+          config->device_mac[4] == 0 && config->device_mac[5] == 0)) {  
+        memcpy(device->mac_addr, config->device_mac, 6);  
+    }  
+      
+    return tap_fd;  
 }
 
 /* ********************************** */
 
-int tuntap_read(struct tuntap_dev *tuntap, unsigned char *buf, int len) {
-  return(read(tuntap->fd, buf, len));
+ssize_t tuntap_read(struct tuntap_dev *tuntap, unsigned char *buf, size_t len) {  
+    return read(tuntap->fd, buf, len);  
 }
 
 /* ********************************** */
 
-int tuntap_write(struct tuntap_dev *tuntap, unsigned char *buf, int len) {
-  return(write(tuntap->fd, buf, len));
+ssize_t tuntap_write(struct tuntap_dev *tuntap, unsigned char *buf, size_t len) {  
+    return write(tuntap->fd, buf, len);  
 }
 
 /* ********************************** */
