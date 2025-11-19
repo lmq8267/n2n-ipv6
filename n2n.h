@@ -24,8 +24,12 @@
 #ifndef _N2N_H_
 #define _N2N_H_
 
-#if defined(__APPLE__) && defined(__MACH__)
-#define _DARWIN_
+#if defined(__APPLE__) && defined(__MACH__)  
+#define _DARWIN_  
+/* macOS 某些版本缺少 reallocarray,提供兼容实现 */  
+#ifndef reallocarray  
+#define reallocarray(p, n, s) realloc((p), ((n)*(s)))  
+#endif  
 #endif
 
 /* Moved here to define _CRT_SECURE_NO_WARNINGS before all the including takes place */
