@@ -1884,6 +1884,9 @@ static void readFromIPSocket( n2n_edge_t * eee )
                     eee->sn_wait=0;
                     eee->sup_attempts = N2N_EDGE_SUP_ATTEMPTS; /* refresh because we got a response */
 
+                    // 添加成功连接的日志  
+                    traceEvent(TRACE_NORMAL, "[OK] Edge Peer <<< ================ >>> Super Node"); 
+
                     /* REVISIT: store sn_back */
                     eee->register_lifetime = ra.lifetime;
                     eee->register_lifetime = max( eee->register_lifetime, REGISTER_SUPER_INTERVAL_MIN );
@@ -2855,5 +2858,4 @@ static int run_loop(n2n_edge_t * eee )
 
     return(0);
 }
-
 
