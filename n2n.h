@@ -42,7 +42,7 @@
 #define N2N_HAVE_SETUID 1
 #ifdef __linux__
 #define N2N_CAN_NAME_IFACE 1
-#define N2N_HAS_CAPABILITIES 1
+//#define N2N_HAS_CAPABILITIES 1
 #endif
 #endif
 
@@ -74,10 +74,10 @@
 
 #ifdef __linux__
 #include <sys/prctl.h>
-#include <sys/capability.h>
+//#include <sys/capability.h>
 #include <linux/if.h>
 #include <linux/if_tun.h>
-#include <linux/prctl.h>
+//#include <linux/prctl.h>
 #endif /* #ifdef __linux__ */
 
 #ifdef __FreeBSD__
