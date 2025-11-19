@@ -1,136 +1,123 @@
 
 
-# Edge node
+# Edge 客户端
 
-You need to start an edge node on each host you want to connect with the *same*
-community.
+你需要在每一台希望与同一个社区连接的主机上启动一个 edge 节点。
 
-Become root
+例如
 ```
 ./edge -f -d n2n0 -c mynetwork -u 99 -g 99 -k encryptme -m 00:FF:12:34:56:78 -a 192.168.254.1 -s 255.255.255.0 -l a.b.c.d:xyw
 ```
-or
+或
 ```
 N2N_KEY=encryptme ./edge -f -d n2n0 -c mynetwork -u 99 -g 99 -m 00:FF:12:34:56:78 -a 192.168.254.1 -s 255.255.255.0 -l a.b.c.d:xyw
 ```
 
-Once you have this worked out, you can drop the `-f` option to make edge detach
-and run as a daemon.
+在你确认其运行正常后，你可以去掉 `-f` 选项，让 edge 脱离前台并作为守护进程运行。
 
-Note that `-u`, `-g` and `-f` options are not available for Windows.
+注意：`-u`、`-g` 和 `-f` 选项在 Windows 上不可用。
 
-When running edge on Windows a compatile TAP network interface is required, the driver is included in the
-[OpenVPN installer](https://openvpn.net/index.php/open-source/downloads.html). If multiple TAP adapters
-exist in the system one can be specified using the `-d` parameter and the "Friendly Name" of the adapter
-(the one shown in the Network Adapter List in the Control Pannel). If the name containes spaces be sure to use quotation marks around it.
+在 Windows 上运行 edge 时需要兼容的 TAP 网络接口，该驱动包含在
+[OpenVPN installer](https://openvpn.net/index.php/open-source/downloads.html) 中。如果系统存在多个 TAP 适配器，可以使用 `-d` 参数指定适配器的“友好名称”
+（即控制面板网络适配器列表中显示的名称）。如果名称包含空格，请务必使用引号。
 
-# Supernode
+# Supernode 服务端
 
-You need to start the supernode once, it does not require any privileges.
+你只需要启动一次 supernode，它不需要任何权限。
 
 1. `./supernode -l 1234 -v -f`
 
-# IPv6 Support
+# IPv6 支持
 
-This version of edge and supernode support transport inbetween over IPv6.
+此版本的 edge 和 supernode 支持通过 IPv6 进行传输。
 
-Start supernode either in IPv6 or IPv4 and IPv6 mode, by specifing `-6` or `-4` and `-6` switches.
+通过指定 `-6` 或 `-4` 与 `-6` 选项来启动 supernode 的 IPv6 或 IPv4+IPv6 模式。
 
 ```
 ./supernode -6 -f
 ```
-or
+或
 ```
 ./supernode -4 -6 -f
 ```
 
-The default setting is to launch supernode in IPv4 only mode.
 
-To use IPv6 with edge only the address needs to be specified for
-the supernode.
+默认设置为仅 IPv4 模式启动 supernode。
 
-```
-./edge -f -v [ other options ] -l [2001:aa00:bb00::1]:1234
-```
-
-If DNS name resolution is required, then use the `-6` parameter,
-to force a IPv6 address to be resolved.
+要在 edge 中使用 IPv6，只需要为 supernode 指定 IPv6 地址。
 
 ```
-./edge -f -v [ other options ] -6 -l example.com:1234
+./edge -f -v [ 其他参数 ] -l [2001:aa00:bb00::1]:1234
+```
+
+如果需要 DNS 名称解析 IPv6，则使用 `-6` 参数来强制解析 IPv6 地址。
+
+```
+./edge -f -v [ 其他参数 ] -6 -l example.com:1234
 ```
 
 
-# IPv6 Support (Inner)
+# IPv6 支持 (内部)
 
-n2n supports the carriage of IPv6 packets within the n2n tunnel.
+n2n 支持在 n2n 隧道内传输 IPv6 数据包。
 
 ```
-./edge -f -v [ other options ] -a 192.168.254.1 -s 255.255.255.0 -A fdf0:aa01:bb02::1/64
+./edge -f -v [ 其他参数 ] -a 192.168.254.1 -s 255.255.255.0 -A fdf0:aa01:bb02::1/64
 ```
 
-# Considerations of running edge as system service
+# 将 Edge 作为系统服务运行
 
-## Use net_admin capabilities (LINUX)
+## 使用 net_admin 功能（LINUX）
 
-This version of edge is capabilties aware and uses the `NET_ADMIN` capability if it is found
-in its permissive set.
+此版本的 Edge 具有功能感知能力，如果在其允许的权限集中找到 `NET_ADMIN` 该功能，则会使用该功能。
 
-To use this feature set as root the admin capability:
+要以 root 用户身份使用此功能集，需要具备以下管理员权限：:
+
 ```
 setcap cap_net_admin+p ./edge
 ```
 
-Edge can now be run as any user that has executive permission for edge.
+Edge 现在可以由任何具有执行权限的用户运行
 
 
-## Running As a Daemon (UNIX)
+## 以守护进程方式运行（UNIX）
 
-Unless given `-f` as a command line option, edge will call `daemon(3)` after
-successful setup. This causes the process to fork a child which closes `stdin`,
-`stdout` and `stderr` then sets itself as process group leader. When this is done,
-the edge command returns immediately and you will only see the edge process in
-the process listings, eg. from `ps` or `top`.
+除非 `-f` 作为命令行选项指定，否则 edge 会 `daemon(3)` 在设置成功后调用。这会导致进程 fork 出一个子进程，该子进程会关闭自身 `stdin` ， `stdout` 然后 `stderr` 将自身设置为进程组领导者。
 
-If the edge command returns 0 then the daemon started successfully. If it
-returns non-zero then edge failed to start up for some reason. When edge starts
-running as a daemon, all logging goes to syslog `daemon.info` facility.
+完成此操作后，edge 命令会立即返回，您将只会在进程列表中看到 edge 进程，例如在进程列表中或进程列表 `ps` 中 `top` 。
+
+如果 edge 命令返回 0，则表示守护进程已成功启动。如果返回非零值，则表示 edge 由于某种原因启动失败。当 edge 作为守护进程运行时，所有日志都会发送到系统日志 (syslog)`daemon.info`服务。
 
 
-## Dropping Root Privileges and SUID-Root Executables (UNIX)
+## 放弃 Root 权限和 SUID-Root 可执行文件（UNIX）
 
-The edge node uses superuser privileges to create a TAP network interface
-device. Once this is created root privileges are not required and can constitute
-a security hazard if there is some way for an attacker to take control of an
-edge process while it is running. Edge will drop to a non-privileged user if you
-specify the `-u <uid>` and `-g <gid>` options. These are numeric IDs. Consult `/etc/passwd`.
+边缘节点使用超级用户权限创建 TAP 网络接口设备。创建完成后，不再需要 root 权限，但如果攻击者能够以某种方式控制正在运行的边缘进程，则可能构成安全隐患。
 
-You may choose to install edge SUID-root to do this:
+如果您指定了 `--privilegeduser` 和 `--privilegeduser` `-u <uid>` 选项，边缘节点将切换到非特权用户 `-g <gid>`。这些是数字 ID。请参阅相关文档`/etc/passwd`。
+
+您可以选择安装 edge SUID-root 来实现此目的:
 
 1. Become root
 2. `chown root:root edge`
 3. `chmod +s edge`
 
-Any user can now run edge. You may not want this, but it may be convenient and
-safe if your host has only one login user.
+现在任何用户都可以运行 Edge 浏览器。您可能并不需要这样做，但如果您的主机只有一个登录用户，那么这样做可能既方便又安全。
 
-## Systemd Service (LINUX)
+## Systemd 服务（LINUX）
 
-Examples for an systemd service file are provided in the systemd/ folder.
-The edge service uses AmbientCapabilities to set the net_admin capability
-to run edge as a dynamically created user.
+`systemd/` 文件夹中提供了 systemd 服务文件的示例。edge 服务使用 `AmbientCapabilities` 设置 `net_admin` 权限，以便以动态创建的用户身份运行 edge 服务。
 
-Systemd requires a Linux Kernel 4.3 or greater for this feature.
+Systemd 需要 Linux 内核 4.3 或更高版本才能使用此功能。
 
 
-## SCM Service (WINDOWS)
+## SCM 服务 (WINDOWS)
 
-edge and supernode can be installed as a Windows SCM service, consult the [`win32/install.ps1`](win32/install.ps1)
-script in the repository.
+edge 和 supernode 可以安装为 Windows SCM 服务，请参阅 [`win32/install.ps1`](win32/install.ps1) 存储库中的脚本。
 
-When running as a service, edge and supernode are not attached to
-a console, messages are logged in the Windows Event Log.
+当以服务形式运行时，edge 和 supernode 不会连接到控制台，消息会记录在 Windows 事件日志中。
 
-The commandline parameters are stored in `HKLM:\SOFTWARE\n2n\edge\Arguments` and `HKLM:\SOFTWARE\n2n\supernode\Arguments`.
-They can be modified using `regedit` or an administrative PowerShell Console. Both entries are *MulitStrings*, so that parameters
-containing spaces can properly supported but if this is not needed the registry entries can be of type *String* too.
+命令行参数存储在 `HKLM:\SOFTWARE\n2n\edge\Arguments` 和 `HKLM:\SOFTWARE\n2n\supernode\Arguments`中。
+
+可以使用 `<your-command> ` 或管理员权限的 PowerShell 控制台 `HKLM:\SOFTWARE\n2n\supernode\Arguments` 修改它们。
+
+这两个条目都是`MultiStrings`类型，因此可以正确支持包含空格的参数，如果不需要支持空格，也可以使用 *String* 类型。
