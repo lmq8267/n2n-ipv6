@@ -228,8 +228,8 @@ jobs:
             -DOPENSSL_CRYPTO_LIBRARY="${{ env.OPENSSL_PREFIX }}\lib\libcrypto.lib;Crypt32.lib" 
       
           nmake   
-          .\edge.exe -h | true 
-          .\supernode.exe -h | true 
+          .\edge.exe -h || true 
+          .\supernode.exe -h || true 
           
       - name: 安装 UPX
         if: runner.os == 'Linux' && !contains(matrix.TARGET, 'windows') && !contains(matrix.TARGET, 'apple-darwin')
