@@ -9,37 +9,37 @@
 
 
 #include "n2n.h"
-
+#include <poll.h>
 
 #define N2N_SN_LPORT_DEFAULT SUPERNODE_PORT
 #define N2N_SN_PKTBUF_SIZE   2048
 
 #define N2N_SN_MGMT_PORT                5645
 
-struct sn_stats
-{
-    size_t errors;              /* Number of errors encountered. */
-    size_t reg_super;           /* Number of REGISTER_SUPER requests received. */
-    size_t reg_super_nak;       /* Number of REGISTER_SUPER requests declined. */
-    size_t fwd;                 /* Number of messages forwarded. */
-    size_t broadcast;           /* Number of messages broadcast to a community. */
-    time_t last_fwd;            /* Time when last message was forwarded. */
-    time_t last_reg_super;      /* Time when last REGISTER_SUPER was received. */
-};
+struct sn_stats  
+{  
+    size_t errors;              /* Number of errors encountered. */  
+    size_t reg_super;           /* Number of REGISTER_SUPER requests received. */  
+    size_t reg_super_nak;       /* Number of REGISTER_SUPER requests declined. */  
+    size_t fwd;                 /* Number of messages forwarded. */  
+    size_t broadcast;           /* Number of messages broadcast to a community. */  
+    time_t last_fwd __attribute__((aligned(8)));            /* Time when last message was forwarded. */  
+    time_t last_reg_super __attribute__((aligned(8)));      /* Time when last REGISTER_SUPER was received. */  
+} __attribute__((aligned(8)));
 
 typedef struct sn_stats sn_stats_t;
 
-struct n2n_sn
-{
-    time_t              start_time;     /* Used to measure uptime. */
-    sn_stats_t          stats;
-    int                 daemon;         /* If non-zero then daemonise. */
-    uint16_t            lport;          /* Local UDP port to bind to. */
-    SOCKET              sock;           /* Main socket for UDP traffic with edges. */
-    SOCKET              sock6;
-    SOCKET              mgmt_sock;      /* management socket. */
-    struct peer_info *  edges;          /* Link list of registered edges. */
-};
+struct n2n_sn  
+{  
+    time_t              start_time __attribute__((aligned(8)));     /* Used to measure uptime. */  
+    sn_stats_t          stats;  
+    int                 daemon;         /* If non-zero then daemonise. */  
+    uint16_t            lport;          /* Local UDP port to bind to. */  
+    SOCKET              sock;           /* Main socket for UDP traffic with edges. */  
+    SOCKET              sock6;  
+    SOCKET              mgmt_sock;      /* management socket. */  
+    struct peer_info *  edges __attribute__((aligned(8)));          /* Link list of registered edges. */  
+} __attribute__((aligned(8)));
 
 typedef struct n2n_sn n2n_sn_t;
 
@@ -436,6 +436,7 @@ static int process_mgmt( n2n_sn_t * sss,
 /** Examine a datagram and determine what to do with it.
  *
  */
+__attribute__((used))
 static int process_udp( n2n_sn_t * sss,
                         const struct sockaddr * sender_sock,
                         const uint8_t * udp_buf,
@@ -669,15 +670,20 @@ static int process_udp( n2n_sn_t * sss,
                     sock_to_cstr( sockbuf, &(ack.sock) ) );
 
         update_edge( sss, reg.edgeMac, cmn.community, &(ack.sock), now );
-
-        encode_REGISTER_SUPER_ACK( ackbuf, &encx, &cmn2, &ack );
-
-        sendto( sss->sock, ackbuf, encx, 0,
-                (struct sockaddr *)sender_sock, sizeof(struct sockaddr_in) );
-
-        traceEvent( TRACE_DEBUG, "Tx REGISTER_SUPER_ACK for %s %s",
-                    macaddr_str( mac_buf, reg.edgeMac ),
-                    sock_to_cstr( sockbuf, &(ack.sock) ) );
+ 
+		encode_REGISTER_SUPER_ACK( ackbuf, &encx, &cmn2, &ack );  
+  
+		// 根据地址族选择正确的 socket  
+		volatile SOCKET send_sock = (sender_sock->sa_family == AF_INET6) ? sss->sock6 : sss->sock;  
+		volatile socklen_t sock_len = (sender_sock->sa_family == AF_INET6) ?   
+                     sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);  
+  
+		sendto( send_sock, ackbuf, encx, 0,  
+        	(struct sockaddr *)sender_sock, sock_len );  
+  
+		traceEvent( TRACE_NORMAL, "Tx REGISTER_SUPER_ACK for %s %s",  
+            	macaddr_str( mac_buf, reg.edgeMac ),  
+            	sock_to_cstr( sockbuf, &(ack.sock) ) );
 
     }
 
@@ -721,7 +727,7 @@ static const struct option long_options[] = {
 /** Main program entry point from kernel. */
 int main( int argc, char * const argv[] )
 {
-    n2n_sn_t sss;
+    n2n_sn_t sss __attribute__((aligned(16)));
     bool ipv4 = false, ipv6 = false;
     char mgmt_path[108] = "";
 
@@ -873,131 +879,149 @@ int main( int argc, char * const argv[] )
 
 /** Long lived processing entry point. Split out from main to simply
  *  daemonisation on some platforms. */
-static int run_loop( n2n_sn_t * sss )
-{
-    uint8_t pktbuf[N2N_SN_PKTBUF_SIZE];
-    int keep_running=1;
-
-    sss->start_time = time(NULL);
-
-    while(keep_running)
-    {
-        int rc;
-        ssize_t bread;
-        int max_sock;
-        fd_set socket_mask;
-        struct timeval wait_time;
-        time_t now=0;
-
-        FD_ZERO(&socket_mask);
-        max_sock = max(max((int) sss->sock, (int) sss->sock6), (int) sss->mgmt_sock);
-
-        if (sss->sock != -1)
-            FD_SET(sss->sock, &socket_mask);
-        if (sss->sock6 != -1)
-            FD_SET(sss->sock6, &socket_mask);
-        FD_SET(sss->mgmt_sock, &socket_mask);
-
-        wait_time.tv_sec = 10; wait_time.tv_usec = 0;
-        rc = select(max_sock+1, &socket_mask, NULL, NULL, &wait_time);
-
-        now = time(NULL);
-
-        if(rc > 0)
-        {
-            struct sockaddr_storage  sender_sock;
-            socklen_t i;
-            i = sizeof(sender_sock);
-
-            if (FD_ISSET(sss->sock, &socket_mask))
-            {
-                bread = recvfrom( sss->sock, pktbuf, N2N_SN_PKTBUF_SIZE, 0/*flags*/,
-				  (struct sockaddr *)&sender_sock, (socklen_t*)&i);
-
-                if ( bread < 0 ) /* For UDP bread of zero just means no data (unlike TCP). */
-                {
-                    /* The fd is no good now. Maybe we lost our interface. */
-#ifdef _WIN32
-                    DWORD err = WSAGetLastError();
-                    W32_ERROR(err, error);
-                    traceEvent( TRACE_ERROR, "recvfrom() failed %d errno %d (%ls)", bread, err, error );
-                    W32_ERROR_FREE(error);
-#else
-                    traceEvent( TRACE_ERROR, "recvfrom() failed %d errno %d (%s)", bread, errno, strerror(errno) );
-#endif
-                    keep_running=0;
-                    break;
-                }
-
-                /* We have a datagram to process */
-                if ( bread > 0 )
-                {
-                    /* And the datagram has data (not just a header) */
-                    process_udp( sss, (struct sockaddr*) &sender_sock, pktbuf, bread, now );
-                }
-            }
-
-            if (FD_ISSET(sss->sock6, &socket_mask))
-            {
-                bread = recvfrom( sss->sock6, pktbuf, N2N_SN_PKTBUF_SIZE, 0/*flags*/,
-				  (struct sockaddr*) &sender_sock, (socklen_t*) &i);
-
-                if ( bread < 0 ) /* For UDP bread of zero just means no data (unlike TCP). */
-                {
-                    /* The fd is no good now. Maybe we lost our interface. */
-#ifdef _WIN32
-                    DWORD err = WSAGetLastError();
-                    W32_ERROR(err, error);
-                    traceEvent( TRACE_ERROR, "recvfrom() failed %d errno %d (%ls)", bread, err, error );
-                    W32_ERROR_FREE(error);
-#else
-                    traceEvent( TRACE_ERROR, "recvfrom() failed %d errno %d (%s)", bread, errno, strerror(errno) );
-#endif
-                    keep_running=0;
-                    break;
-                }
-
-                /* We have a datagram to process */
-                if ( bread > 0 )
-                {
-                    /* And the datagram has data (not just a header) */
-                    process_udp( sss, (struct sockaddr*) &sender_sock, pktbuf, bread, now );
-                }
-            }
-
-            if (FD_ISSET(sss->mgmt_sock, &socket_mask))
-            {
-                bread = recvfrom( sss->mgmt_sock, pktbuf, N2N_SN_PKTBUF_SIZE, 0/*flags*/,
-				  (struct sockaddr *)&sender_sock, &i);
-
-                if ( bread <= 0 )
-                {
-#ifdef _WIN32
-                    DWORD err = WSAGetLastError();
-                    W32_ERROR(err, error);
-                    traceEvent( TRACE_ERROR, "recvfrom() failed %d errno %d (%ls)", bread, err, error );
-                    W32_ERROR_FREE(error);
-#else
-                    traceEvent( TRACE_ERROR, "recvfrom() failed %d errno %d (%s)", bread, errno, strerror(errno) );
-#endif
-                    keep_running=0;
-                    break;
-                }
-
-                /* We have a datagram to process */
-                process_mgmt( sss, (struct sockaddr*) &sender_sock, i, pktbuf, bread, now );
-            }
-        }
-        else
-        {
-            traceEvent( TRACE_DEBUG, "timeout" );
-        }
-
-        purge_expired_registrations( &(sss->edges) );
-
-    } /* while */
-
-    deinit_sn( sss );
-
-    return 0;
+static int run_loop( n2n_sn_t * sss )  
+{  
+    uint8_t pktbuf[N2N_SN_PKTBUF_SIZE] __attribute__((aligned(8)));  
+    int keep_running=1;  
+  
+    sss->start_time = time(NULL);  
+  
+    while(keep_running)  
+    {  
+        int rc;  
+        ssize_t bread;  
+          
+        /* 使用 poll 替代 select */  
+        struct pollfd fds[3];  
+        int nfds = 0;  
+          
+        if (sss->sock != -1) {  
+            fds[nfds].fd = sss->sock;  
+            fds[nfds].events = POLLIN;  
+            nfds++;  
+        }  
+          
+        if (sss->sock6 != -1) {  
+            fds[nfds].fd = sss->sock6;  
+            fds[nfds].events = POLLIN;  
+            nfds++;  
+        }  
+          
+        fds[nfds].fd = sss->mgmt_sock;  
+        fds[nfds].events = POLLIN;  
+        nfds++;  
+          
+        time_t now = time(NULL);  
+          
+        /* poll 超时 10 秒 */  
+        rc = poll(fds, nfds, 10000);  
+  
+        if(rc > 0)  
+        {  
+            uint8_t sock_buffer[sizeof(struct sockaddr_storage) + 8] __attribute__((aligned(8)));  
+            struct sockaddr_storage *sender_sock = (struct sockaddr_storage*)sock_buffer;  
+            socklen_t i;  
+  
+            /* 检查 IPv4 socket */  
+            if (sss->sock != -1) {  
+                for (int j = 0; j < nfds; j++) {  
+                    if (fds[j].fd == sss->sock && (fds[j].revents & POLLIN)) {  
+                        i = sizeof(*sender_sock);  
+                        bread = recvfrom(sss->sock, pktbuf, N2N_SN_PKTBUF_SIZE, 0,  
+                                        (struct sockaddr *)sender_sock, &i);  
+  
+                        if (bread < 0) {  
+#ifdef _WIN32  
+                            DWORD err = WSAGetLastError();  
+                            W32_ERROR(err, error);  
+                            traceEvent(TRACE_ERROR, "recvfrom() failed %d errno %d (%ls)", bread, err, error);  
+                            W32_ERROR_FREE(error);  
+#else  
+                            traceEvent(TRACE_ERROR, "recvfrom() failed %d errno %d (%s)", bread, errno, strerror(errno));  
+#endif  
+                            keep_running=0;  
+                            break;  
+                        }  
+  
+                        if (bread > 0) {  
+                            process_udp(sss, (struct sockaddr*)sender_sock, pktbuf, bread, now);  
+                        }  
+                        break;  
+                    }  
+                }  
+            }  
+  
+            /* 检查 IPv6 socket */  
+            if (sss->sock6 != -1 && keep_running) {  
+                for (int j = 0; j < nfds; j++) {  
+                    if (fds[j].fd == sss->sock6 && (fds[j].revents & POLLIN)) {  
+                        i = sizeof(*sender_sock);  
+                        bread = recvfrom(sss->sock6, pktbuf, N2N_SN_PKTBUF_SIZE, 0,  
+                                        (struct sockaddr*)sender_sock, &i);  
+  
+                        if (bread < 0) {  
+#ifdef _WIN32  
+                            DWORD err = WSAGetLastError();  
+                            W32_ERROR(err, error);  
+                            traceEvent(TRACE_ERROR, "recvfrom() failed %d errno %d (%ls)", bread, err, error);  
+                            W32_ERROR_FREE(error);  
+#else  
+                            traceEvent(TRACE_ERROR, "recvfrom() failed %d errno %d (%s)", bread, errno, strerror(errno));  
+#endif  
+                            keep_running=0;  
+                            break;  
+                        }  
+  
+                        if (bread > 0) {  
+                            process_udp(sss, (struct sockaddr*)sender_sock, pktbuf, bread, now);  
+                        }  
+                        break;  
+                    }  
+                }  
+            }  
+  
+            /* 检查管理 socket */  
+            if (keep_running) {  
+                for (int j = 0; j < nfds; j++) {  
+                    if (fds[j].fd == sss->mgmt_sock && (fds[j].revents & POLLIN)) {  
+                        i = sizeof(*sender_sock);  
+                        bread = recvfrom(sss->mgmt_sock, pktbuf, N2N_SN_PKTBUF_SIZE, 0,  
+                                        (struct sockaddr *)sender_sock, &i);  
+  
+                        if (bread <= 0) {  
+#ifdef _WIN32  
+                            DWORD err = WSAGetLastError();  
+                            W32_ERROR(err, error);  
+                            traceEvent(TRACE_ERROR, "recvfrom() failed %d errno %d (%ls)", bread, err, error);  
+                            W32_ERROR_FREE(error);  
+#else  
+                            traceEvent(TRACE_ERROR, "recvfrom() failed %d errno %d (%s)", bread, errno, strerror(errno));  
+#endif  
+                            keep_running=0;  
+                            break;  
+                        }  
+  
+                        process_mgmt(sss, (struct sockaddr*)sender_sock, i, pktbuf, bread, now);  
+                        break;  
+                    }  
+                }  
+            }  
+        }  
+        else if (rc < 0)  
+        {  
+            traceEvent(TRACE_ERROR, "poll() error: %s", strerror(errno));  
+            keep_running=0;  
+        }  
+        else  
+        {  
+            traceEvent(TRACE_DEBUG, "timeout");  
+        }  
+  
+        purge_expired_registrations(&(sss->edges));  
+  
+    } /* while */  
+  
+    deinit_sn(sss);  
+  
+    return 0;  
 }
