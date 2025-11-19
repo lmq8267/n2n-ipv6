@@ -104,9 +104,9 @@ add_executable(edge
         tuntap_osx.c
         ${OBJECTS} ${EDGE_RESOURCE}
 )
-if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-        target_link_libraries(edge cap)
-endif()
+##if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+##        target_link_libraries(edge cap)
+##endif()
 set_property(TARGET edge PROPERTY C_STANDARD 99)
 
 add_executable(supernode
