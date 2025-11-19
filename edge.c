@@ -329,10 +329,11 @@ static int edge_init(n2n_edge_t * eee)
     eee->sup_attempts = N2N_EDGE_SUP_ATTEMPTS;
     eee->sn_af = AF_UNSPEC;
 
-    if(lzo_init() != LZO_E_OK)
-    {
-        traceEvent(TRACE_ERROR, "LZO compression error");
-        return(-1);
+    int lzo_error = lzo_init();  
+    if(lzo_error != LZO_E_OK)  
+    {  
+        traceEvent(TRACE_ERROR, "LZO compression error: %d", lzo_error);  
+        return(-1);  
     }
 
     return(0);
@@ -2583,7 +2584,9 @@ int main(int argc, char* argv[])
     if ( eee.daemon )
     {
         useSyslog = 1; /* traceEvent output now goes to syslog. */
-        prctl(PR_SET_KEEPCAPS, 1L);
+        #ifdef __linux__  
+        prctl(PR_SET_KEEPCAPS, 1L);  
+        #endif
         if ( -1 == daemon( 0, 0 ) ) {
             traceEvent( TRACE_ERROR, "Failed to become daemon." );
             exit(-5);
@@ -2858,4 +2861,3 @@ static int run_loop(n2n_edge_t * eee )
 
     return(0);
 }
-
