@@ -53,7 +53,8 @@ struct n2n_sn
     time_t start_time;  
     sn_stats_t stats;  
     int daemon;  
-    uint16_t lport;  
+    uint16_t lport;
+	uint16_t mgmt_port;
     SOCKET sock;  
     SOCKET sock6;  
     SOCKET mgmt_sock;  
@@ -94,6 +95,7 @@ static int init_sn( n2n_sn_t * sss )
 
     sss->daemon = 1; /* By defult run as a daemon. */
     sss->lport = N2N_SN_LPORT_DEFAULT;
+	sss->mgmt_port = N2N_SN_MGMT_PORT;
     sss->sock = -1;
     sss->sock6 = -1;
     sss->mgmt_sock = -1;
@@ -725,6 +727,7 @@ static void help(int argc, char * const argv[])
 {
     fprintf( stderr, "%s usage\n", argv[0] );
     fprintf( stderr, "-l <lport>\tSet UDP main listen port to <lport>\n" );
+	fprintf( stderr, "-m <mport>\tSet UDP management port to <mport> (default 5645)\n" );
     fprintf( stderr, "-4        \tUse IPv4 network (default)\n" );
     fprintf( stderr, "-6        \tUse IPv6 network\n" );
 #ifndef _WIN32
@@ -745,6 +748,7 @@ static int run_loop( n2n_sn_t * sss );
 static const struct option long_options[] = {
   { "foreground",      no_argument,       NULL, 'f' },
   { "local-port",      required_argument, NULL, 'l' },
+  { "mgmt-port",       required_argument, NULL, 'm' },
   { "help"   ,         no_argument,       NULL, 'h' },
   { "verbose",         no_argument,       NULL, 'v' },
   { "ipv4",            no_argument,       NULL, '4' },
@@ -788,13 +792,16 @@ int main( int argc, char * const argv[] )
     {
         int opt;
 
-        while((opt = getopt_long(argc, argv, "ft:l:46vh", long_options, NULL)) != -1)
+        while((opt = getopt_long(argc, argv, "fm:t:l:46vh", long_options, NULL)) != -1)
         {
             switch (opt)
             {
             case 'l': /* local-port */
                 sss.lport = atoi(optarg);
                 break;
+			case 'm': /* mgmt-port */  
+        		sss.mgmt_port = atoi(optarg);  
+        		break;
             case 't':
                 strncpy(mgmt_path, optarg, 108);
                 break;
@@ -875,7 +882,7 @@ int main( int argc, char * const argv[] )
 #ifndef _WIN32
     if (mgmt_path[0] == '\0') {
 #endif
-        sss.mgmt_sock = open_socket(N2N_SN_MGMT_PORT, 0 /* bind LOOPBACK */ );
+        sss.mgmt_sock = open_socket(sss.mgmt_port, 0 /* bind LOOPBACK */ );
 #ifndef _WIN32
     }
     else
@@ -896,7 +903,7 @@ int main( int argc, char * const argv[] )
     }
     else if (mgmt_path[0] == '\0')
     {
-        traceEvent( TRACE_NORMAL, "supernode is listening on UDP %u (management)", N2N_SN_MGMT_PORT );
+        traceEvent( TRACE_NORMAL, "supernode is listening on UDP %u (management)", sss.mgmt_port );
     }
     else
     {
